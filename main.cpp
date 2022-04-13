@@ -28,9 +28,9 @@
 #define STATE_LED_G PC_6
 #define STATE_LED_B PC_8
 
-#define JOYSTICK_X
-#define JOYSTICK_Y
-#define JOYSTICK_BTN
+#define JOYSTICK_X PA_0
+#define JOYSTICK_Y PB_0
+#define JOYSTICK_BTN PA_8
 
 
 //Global constant definitions
@@ -86,6 +86,10 @@ enum Pitch {
     bb3,
     b3
 };
+
+std::string no_yes[2] = {"N", "Y"};
+
+
 
 //Map of pitches and corresponding AnalogOut vals
 
@@ -182,6 +186,9 @@ int gateLength = 20;
 bool accentMode = 1;
 static int currStep = 0;
 
+//Edit menu variables
+int selectedItem = 0;
+
 //Settings Menu Variables
 int currentMenuItem = 0;
 
@@ -205,6 +212,11 @@ BusOut stateLED(STATE_LED_R, STATE_LED_G, STATE_LED_B);
 //LCD declaration
 N5110 lcd(PC_7, PA_9, PB_10, PB_5, PB_3, PA_10);
 char lcdBuffer[14] = {0};
+
+//Joystick declaration
+Joystick joystick(JOYSTICK_Y, JOYSTICK_X);
+Direction joystickDir;
+DigitalIn joystick_btn(JOYSTICK_BTN);
 
 //Global flags
 volatile int g_clock_flag = 0;
@@ -251,7 +263,9 @@ int main()
     settingsBtn.mode(PullNone);
     //Sets interrupt object to call clock isr on rising edge
     clockIn.fall(&clock_isr, 1ms);
-    //Activates internal pull down resistor on interrupt pin
+    
+    joystick.init();
+    joystick_btn.mode(PullUp);
     
     //Initialise cv and gate voltage outputs to 0
     cvOut = 0.0;
@@ -368,7 +382,7 @@ void run_state(){
         std::string pitchLine = " Pitch: " + pitchStrings[sequence[currStep].pitch];
         const char *pString = pitchLine.c_str();
         lcd.printString(pString, 0, 3);                     //https://stackoverflow.com/questions/7352099/stdstring-to-char
-        sprintf(lcdBuffer, " R:%i A:%i G:%i", sequence[currStep].rest, sequence[currStep].accent, sequence[currStep].glide);
+        sprintf(lcdBuffer, " Rst:%s  Acc:%s", no_yes[sequence[currStep].rest].c_str(), no_yes[sequence[currStep].accent].c_str());
         lcd.printString(lcdBuffer, 0, 5);
         lcd.refresh();
 
@@ -401,20 +415,131 @@ void run_state(){
 }
 
 void edit_state(){
-    currStep = 0;
 
     stateLED.write(3);
 
-    //Placeholder edit state display
+    joystickDir = joystick.get_direction();
+
+    if(!joystick_btn.read()) {
+        if(selectedItem < 2){
+            selectedItem++;
+        }
+        else {
+            selectedItem = 0;
+        }
+    }
+
+    switch (joystickDir) {
+        case N: {
+            switch (selectedItem) {
+                case 0: {
+                    int pitch = static_cast<int>(sequence[currStep].pitch);         //unwind, https://stackoverflow.com/questions/3475152/why-cant-i-increment-a-variable-of-an-enumerated-type
+                    if (pitch < 35) {
+                        pitch++;
+                    }
+                    sequence[currStep].pitch = static_cast<Pitch>(pitch);
+                    break;
+                }
+                case 1: {
+                    sequence[currStep].rest = true;
+                    break;
+                }
+                case 2: {
+                    sequence[currStep].accent = true;
+                    break;
+                }
+            }
+            break;
+        }
+        case S: {
+            switch (selectedItem) {
+                case 0: {
+                    int pitch = static_cast<int>(sequence[currStep].pitch);
+                    if (pitch > 0) {
+                        pitch--;
+                    }
+                    sequence[currStep].pitch = static_cast<Pitch>(pitch);
+                    break;
+                }
+                case 1: {
+                    sequence[currStep].rest = false;
+                    break;
+                }
+                case 2: {
+                    sequence[currStep].accent = false;
+                    break;
+                }
+            }
+            break;
+        }
+        case E: {
+            if(currStep < sequenceLength - 1) {            //Reset to first step if last step of sequence (or sequence has overrun through error)
+            currStep++;
+            }
+            break;
+        }
+        case W: {
+            if(currStep > 0) {            //Reset to first step if last step of sequence (or sequence has overrun through error)
+                currStep--;
+            }
+            break;
+        }
+        default:{
+            break;
+        }
+    }
+
     lcd.clear();
-    lcd.printString(" SEQ EDIT", 0, 0);
-    lcd.printString(" ============ ", 0, 1);
-    sprintf(lcdBuffer, " Steps: %i", sequenceLength);
-    lcd.printString(lcdBuffer, 0, 3);
-    sprintf(lcdBuffer, " Gate: %ims", gateLength);
+    sprintf(lcdBuffer, " EDIT STEP: %i", currStep + 1);
+    lcd.printString(lcdBuffer, 0, 0);
+    std::string pitchLine = " Pitch: " + pitchStrings[sequence[currStep].pitch];
+    const char *pString = pitchLine.c_str();
+    lcd.printString(pString, 0, 2);
+    sprintf(lcdBuffer, " Rst:%s  Acc:%s", no_yes[sequence[currStep].rest].c_str(), no_yes[sequence[currStep].accent].c_str());
     lcd.printString(lcdBuffer, 0, 4);
+    
+    switch(selectedItem) {
+        case 0:
+            //lcd.drawRect(0, 24, 84, 8, FILL_BLACK)
+            
+            for (int y = 15; y < 25; y++) {
+                for (int x = 0; x < 84; x++) {
+                    bool pixel = lcd.getPixel(x, y);
+                    lcd.setPixel(x, y, !pixel);
+                }
+            }
+            
+            //lcd.drawLine(0, 26, 84, 26, FILL_BLACK);
+            break;
+        case 1:
+            //lcd.drawRect(0, 32, 41, 8, FILL_BLACK);
+            
+            for (int y = 31; y < 41; y++) {
+                for (int x = 0; x < 41; x++) {
+                    bool pixel = lcd.getPixel(x, y);
+                    lcd.setPixel(x, y, !pixel);
+                }
+            }
+            
+            //lcd.drawLine(0, 42, 41, 42, FILL_BLACK);
+            break;
+        case 2:
+            //lcd.drawRect(41, 32, 41, 8, FILL_BLACK);
+            
+            for (int y = 31; y < 41; y++) {
+                for (int x = 41; x < 84; x++) {
+                    bool pixel = lcd.getPixel(x, y);
+                    lcd.setPixel(x, y, !pixel);
+                }
+            }
+            
+            //lcd.drawLine(41, 42, 84, 42, FILL_BLACK);
+            break;
+    }
+    
     lcd.refresh();
-    sleep();
+    
+    ThisThread::sleep_for(150ms);
 }
 
 void settings_state(){
