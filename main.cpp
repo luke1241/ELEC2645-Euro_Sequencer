@@ -7,7 +7,8 @@
 #include <vector>
 #include <string>
 #include <map>
-#include "Encoder.h"
+#include "Joystick.h"
+#include "DebounceIn.h"
 
 /* Definitions are used for constant values that will not change on run-time
    #define makes it easier to change quickly in development
@@ -20,16 +21,16 @@
 #define EDIT_PIN PC_2
 #define SETTINGS_PIN PC_3
 #define CV_PIN PA_4
-#define GATE_PIN PA_1
+#define GATE_PIN PA_14
+#define ACCENT_PIN PA_15
 
 #define STATE_LED_R PC_5
 #define STATE_LED_G PC_6
 #define STATE_LED_B PC_8
 
-#define ENCODER_A PC_9
-#define ENCODER_B PB_8
-#define ENCODER_SW PB_9
-#define ENCODER_STEP_RATE 0.5
+#define JOYSTICK_X
+#define JOYSTICK_Y
+#define JOYSTICK_BTN
 
 
 //Global constant definitions
@@ -137,10 +138,10 @@ struct Step {
 
 //Variable declarations for sequencer
 Step sequence[MAX_SEQUENCE_LENGTH];
-int sequenceLength = 8;
+int sequenceLength = 16;
 int gateLength = 20;
+bool accentMode = 1;
 static int currStep = 0;
-int clockDiv = 1;
 
 //uint8_t keyboardVal = 0b01010101;     uint8_t for 8 bit int
 
@@ -150,7 +151,7 @@ int clockDiv = 1;
 BufferedSerial serial(USBTX, USBRX, 9600);
 
 //Input/Output/Interrupt object declarations
-InterruptIn clockIn(CLOCK_PIN);
+DebounceIn clockIn(CLOCK_PIN, PullDown);
 InterruptIn stopBtn(STOP_PIN);
 InterruptIn runBtn(RUN_PIN);
 InterruptIn editBtn(EDIT_PIN);
@@ -158,14 +159,10 @@ InterruptIn settingsBtn(SETTINGS_PIN);
 
 AnalogOut cvOut(CV_PIN);
 DigitalOut gateOut(GATE_PIN);
+DigitalOut accentOut(ACCENT_PIN);
 
 BusOut stateLED(STATE_LED_R, STATE_LED_G, STATE_LED_B);
 
-int encoderDelta = 0;
-bool encoderPress = 0;
-bool encoderRelease = 0;
-float encoderVal = 0.0;
-Encoder encoder(PC_9, PB_8, PB_9);
 
 //LCD declaration
 N5110 lcd(PC_7, PA_9, PB_10, PB_5, PB_3, PA_10);
@@ -201,23 +198,7 @@ void settings_state();
 
 int main()
 {
-    //init sequence TEMP
-    sequence[0].pitch = "C1";
-    sequence[1].pitch = "D#1";
-    sequence[2].pitch = "G1";
-    sequence[3].pitch = "C2";
-    sequence[4].pitch = "C1";
-    sequence[5].pitch = "D#1";
-    sequence[6].pitch = "G2";
-    sequence[7].pitch = "C2";
-    sequence[8].pitch = "C3";
-    sequence[9].pitch = "A#2";
-    sequence[10].pitch = "G2";
-    sequence[11].pitch = "E2";
-    sequence[12].pitch = "C2";
-    sequence[13].pitch = "A#1";
-    sequence[14].pitch = "G1";
-    sequence[15].pitch = "E1";
+    
 
     stopBtn.rise(&stop_isr);
     stopBtn.mode(PullNone);
@@ -231,13 +212,15 @@ int main()
     settingsBtn.rise(&settings_isr);
     settingsBtn.mode(PullNone);
     //Sets interrupt object to call clock isr on rising edge
-    clockIn.rise(&clock_isr);
+    clockIn.fall(&clock_isr, 1ms);
     //Activates internal pull down resistor on interrupt pin
-    clockIn.mode(PullDown);
     
     //Initialise cv and gate voltage outputs to 0
     cvOut = 0.0;
     gateOut = 0.0;
+
+    //init sequence TEMP
+    init_sequence();
 
     //LCD Initialisation
     lcd.init(LPH7366_1);
@@ -304,6 +287,56 @@ void clock_isr(){
 }
 
 void init_sequence(){
+    sequence[0].pitch = "G1";
+    sequence[1].pitch = "A#3";
+    sequence[2].pitch = "G2";
+    sequence[3].pitch = "F3";
+    sequence[4].pitch = "D#2";
+    sequence[5].pitch = "C1";
+    sequence[6].pitch = "C1";
+    sequence[7].pitch = "C1";
+    sequence[8].pitch = "D#3";
+    sequence[9].pitch = "D#1";
+    sequence[10].pitch = "F3";
+    sequence[11].pitch = "G3";
+    sequence[12].pitch = "A#1";
+    sequence[13].pitch = "G1";
+    sequence[14].pitch = "C1";
+    sequence[15].pitch = "G2";
+
+    sequence[0].rest = 0;
+    sequence[1].rest = 1;
+    sequence[2].rest = 0;
+    sequence[3].rest = 0;
+    sequence[4].rest = 0;
+    sequence[5].rest = 0;
+    sequence[6].rest = 1;
+    sequence[7].rest = 0;
+    sequence[8].rest = 0;
+    sequence[9].rest = 0;
+    sequence[10].rest = 0;
+    sequence[11].rest = 1;
+    sequence[12].rest = 0;
+    sequence[13].rest = 0;
+    sequence[14].rest = 0;
+    sequence[15].rest = 0;
+
+    sequence[0].accent = 1;
+    sequence[1].accent = 0;
+    sequence[2].accent = 0;
+    sequence[3].accent = 1;
+    sequence[4].accent = 0;
+    sequence[5].accent = 0;
+    sequence[6].accent = 1;
+    sequence[7].accent = 0;
+    sequence[8].accent = 0;
+    sequence[9].accent = 1;
+    sequence[10].accent = 0;
+    sequence[11].accent = 0;
+    sequence[12].accent = 1;
+    sequence[13].accent = 0;
+    sequence[14].accent = 0;
+    sequence[15].accent = 1;
 }
 
 
@@ -328,12 +361,33 @@ void idle_state(){
 }
 
 void run_state(){
-    stateLED.write(4);
-
-    //currStep = 0;
+   // stateLED.write(4);
 
     if(g_clock_flag) {                                  //If clock pulse is received
         g_clock_flag = 0;                               //Reset clock flag
+        accentOut.write(0);
+        cvOut.write(pitch[sequence[currStep].pitch] * DAC_SEMITONE);
+        gateOut.write(!sequence[currStep].rest);
+        accentOut.write(sequence[currStep].accent);
+        ThisThread::sleep_for(std::chrono::milliseconds(gateLength));           //https://stackoverflow.com/questions/4184468/sleep-for-milliseconds
+        gateOut.write(0);
+
+        if(accentMode){
+            accentOut.write(0);
+        }
+
+        lcd.clear();
+        lcd.printString(" SEQ RUNNING", 0, 0);
+        lcd.printString(" ============ ", 0, 1);
+        sprintf(lcdBuffer, " Step: %i", currStep);
+        lcd.printString(lcdBuffer, 0, 2);
+        std::string pitchLine = " Pitch: " + sequence[currStep].pitch;
+        const char *pString = pitchLine.c_str();
+        lcd.printString(pString, 0, 3);                     //https://stackoverflow.com/questions/7352099/stdstring-to-char
+        sprintf(lcdBuffer, " R:%i A:%i G:%i", sequence[currStep].rest, sequence[currStep].accent, sequence[currStep].glide);
+        lcd.printString(lcdBuffer, 0, 5);
+        lcd.refresh();
+
         if(currStep >= sequenceLength - 1) {            //Reset to first step if last step of sequence (or sequence has overrun through error)
             currStep = 0;
         }
@@ -341,29 +395,7 @@ void run_state(){
             currStep += 1;
         }
     }
-
-    cvOut.write(pitch[sequence[currStep].pitch] * DAC_SEMITONE);
-    gateOut.write(1);
-    ThisThread::sleep_for(std::chrono::milliseconds(gateLength));           //https://stackoverflow.com/questions/4184468/sleep-for-milliseconds
-    gateOut.write(0);
     
-    /*
-    lcd.clear();
-    lcd.printString(" SEQ RUNNING", 0, 0);
-    lcd.printString(" ============ ", 0, 1);
-    sprintf(lcdBuffer, " Step: %i", currStep);
-    lcd.printString(lcdBuffer, 0, 2);
-    std::string pitchLine = " Pitch: " + sequence[currStep].pitch;
-    const char *pString = pitchLine.c_str();
-    lcd.printString(pString, 0, 3);                     //https://stackoverflow.com/questions/7352099/stdstring-to-char
-    sprintf(lcdBuffer, " R:%i A:%i G:%i", sequence[currStep].rest, sequence[currStep].accent, sequence[currStep].glide);
-    lcd.printString(lcdBuffer, 0, 5);
-    lcd.refresh();
-    */
-    lcd.clear();
-    lcd.refresh();
-    
-
     sleep();
 }
 
@@ -389,27 +421,4 @@ void settings_state(){
 
     stateLED.write(6);
 
-    encoder.read(encoderDelta, encoderPress, encoderRelease);
-
-    if(encoderDelta > 0) {
-        encoderVal+= ENCODER_STEP_RATE;
-    }
-    else if(encoderDelta < 0) {
-        encoderVal-= ENCODER_STEP_RATE;
-    }
-
-    if(encoderVal < 0) {
-        encoderVal = 0;
-    }
-
-
-    
-
-    lcd.clear();
-    lcd.printString(" SEQ SETTINGS", 0, 0);
-    lcd.printString(" ============ ", 0, 1);
-    sprintf(lcdBuffer, " Val: %i", int(encoderVal));
-    lcd.printString(lcdBuffer, 0, 3);
-    lcd.refresh();
-    sleep();
 }
