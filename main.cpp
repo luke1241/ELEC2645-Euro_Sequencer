@@ -47,46 +47,46 @@ enum class State {                                      //https://www.aleksandrh
 
 //Init state to IDLE
 static State g_state = State::ST_IDLE;
-/*
-enum class Pitch {
-    C1,
-    Db1,
-    D1,
-    Eb1,
-    E1,
-    F1,
-    Gb1,
-    G1,
-    Ab1,
-    A1,
-    Bb1,
-    B1,
-    C2,
-    Db2,
-    D2,
-    Eb2,
-    E2,
-    F2,
-    Gb2,
-    G2,
-    Ab2,
-    A2,
-    Bb2,
-    B2,
-    C3,
-    Db3,
-    D3,
-    Eb3,
-    E3,
-    F3,
-    Gb3,
-    G3,
-    Ab3,
-    A3,
-    Bb3,
-    B3
+
+enum Pitch {
+    c1,
+    db1,
+    d1,
+    eb1,
+    e1,
+    f1,
+    gb1,
+    g1,
+    ab1,
+    a1,
+    bb1,
+    b1,
+    c2,
+    db2,
+    d2,
+    eb2,
+    e2,
+    f2,
+    gb2,
+    g2,
+    ab2,
+    a2,
+    bb2,
+    b2,
+    c3,
+    db3,
+    d3,
+    eb3,
+    e3,
+    f3,
+    gb3,
+    g3,
+    ab3,
+    a3,
+    bb3,
+    b3
 };
-*/
+
 //Map of pitches and corresponding AnalogOut vals
 
 std::map<std::string, int> pitch {
@@ -128,9 +128,48 @@ std::map<std::string, int> pitch {
     {"B3", 35}
 };
 
+std::string pitchStrings[36] {
+    "C1",
+    "C#1",
+    "D1",
+    "D#1",
+    "E1",
+    "F1",
+    "F#1",
+    "G1",
+    "G#1",
+    "A1",
+    "A#1",
+    "B1",
+    "C2",
+    "C#2",
+    "D2",
+    "D#2",
+    "E2",
+    "F2",
+    "F#2",
+    "G2",
+    "G#2",
+    "A2",
+    "A#2",
+    "B2",
+    "C3",
+    "C#3",
+    "D3",
+    "D#3",
+    "E3",
+    "F3",
+    "F#3",
+    "G3",
+    "G#3",
+    "A3",
+    "A#3",
+    "B3"
+};
+
 //Step struct hold data for each step
 struct Step {
-    std::string pitch = "C1";
+    Pitch pitch = Pitch::c1;
     bool rest = 0;
     bool accent = 0;
     bool glide = 0;
@@ -143,12 +182,11 @@ int gateLength = 20;
 bool accentMode = 1;
 static int currStep = 0;
 
+//Settings Menu Variables
+int currentMenuItem = 0;
+
+
 //uint8_t keyboardVal = 0b01010101;     uint8_t for 8 bit int
-
-
-
-//Serial port for debugging
-BufferedSerial serial(USBTX, USBRX, 9600);
 
 //Input/Output/Interrupt object declarations
 DebounceIn clockIn(CLOCK_PIN, PullDown);
@@ -170,7 +208,7 @@ char lcdBuffer[14] = {0};
 
 //Global flags
 volatile int g_clock_flag = 0;
-
+volatile int g_run_flag = 0;
 
 
 //ISR declarations
@@ -269,7 +307,7 @@ void stop_isr(){
 //Run isr definition
 void run_isr(){
     g_state = State::ST_RUN;
-    currStep = 0;
+    g_run_flag = 1;
 }
 
 void edit_isr(){
@@ -284,59 +322,6 @@ void settings_isr(){
 
 void clock_isr(){
     g_clock_flag = 1;
-}
-
-void init_sequence(){
-    sequence[0].pitch = "G1";
-    sequence[1].pitch = "A#3";
-    sequence[2].pitch = "G2";
-    sequence[3].pitch = "F3";
-    sequence[4].pitch = "D#2";
-    sequence[5].pitch = "C1";
-    sequence[6].pitch = "C1";
-    sequence[7].pitch = "C1";
-    sequence[8].pitch = "D#3";
-    sequence[9].pitch = "D#1";
-    sequence[10].pitch = "F3";
-    sequence[11].pitch = "G3";
-    sequence[12].pitch = "A#1";
-    sequence[13].pitch = "G1";
-    sequence[14].pitch = "C1";
-    sequence[15].pitch = "G2";
-
-    sequence[0].rest = 0;
-    sequence[1].rest = 1;
-    sequence[2].rest = 0;
-    sequence[3].rest = 0;
-    sequence[4].rest = 0;
-    sequence[5].rest = 0;
-    sequence[6].rest = 1;
-    sequence[7].rest = 0;
-    sequence[8].rest = 0;
-    sequence[9].rest = 0;
-    sequence[10].rest = 0;
-    sequence[11].rest = 1;
-    sequence[12].rest = 0;
-    sequence[13].rest = 0;
-    sequence[14].rest = 0;
-    sequence[15].rest = 0;
-
-    sequence[0].accent = 1;
-    sequence[1].accent = 0;
-    sequence[2].accent = 0;
-    sequence[3].accent = 1;
-    sequence[4].accent = 0;
-    sequence[5].accent = 0;
-    sequence[6].accent = 1;
-    sequence[7].accent = 0;
-    sequence[8].accent = 0;
-    sequence[9].accent = 1;
-    sequence[10].accent = 0;
-    sequence[11].accent = 0;
-    sequence[12].accent = 1;
-    sequence[13].accent = 0;
-    sequence[14].accent = 0;
-    sequence[15].accent = 1;
 }
 
 
@@ -361,17 +346,16 @@ void idle_state(){
 }
 
 void run_state(){
-   // stateLED.write(4);
-
     if(g_clock_flag) {                                  //If clock pulse is received
         g_clock_flag = 0;                               //Reset clock flag
         accentOut.write(0);
-        cvOut.write(pitch[sequence[currStep].pitch] * DAC_SEMITONE);
+
+        cvOut.write(sequence[currStep].pitch * DAC_SEMITONE);
+
         gateOut.write(!sequence[currStep].rest);
         accentOut.write(sequence[currStep].accent);
         ThisThread::sleep_for(std::chrono::milliseconds(gateLength));           //https://stackoverflow.com/questions/4184468/sleep-for-milliseconds
         gateOut.write(0);
-
         if(accentMode){
             accentOut.write(0);
         }
@@ -379,9 +363,9 @@ void run_state(){
         lcd.clear();
         lcd.printString(" SEQ RUNNING", 0, 0);
         lcd.printString(" ============ ", 0, 1);
-        sprintf(lcdBuffer, " Step: %i", currStep);
+        sprintf(lcdBuffer, " Step: %i", currStep + 1);
         lcd.printString(lcdBuffer, 0, 2);
-        std::string pitchLine = " Pitch: " + sequence[currStep].pitch;
+        std::string pitchLine = " Pitch: " + pitchStrings[sequence[currStep].pitch];
         const char *pString = pitchLine.c_str();
         lcd.printString(pString, 0, 3);                     //https://stackoverflow.com/questions/7352099/stdstring-to-char
         sprintf(lcdBuffer, " R:%i A:%i G:%i", sequence[currStep].rest, sequence[currStep].accent, sequence[currStep].glide);
@@ -394,6 +378,23 @@ void run_state(){
         else {                                          //Else increment step
             currStep += 1;
         }
+
+        
+
+    }
+
+    if(g_run_flag) {
+        g_run_flag = 0;
+
+        currStep = 0;
+
+        stateLED.write(4);
+
+        lcd.clear();
+        lcd.printString(" SEQ RUNNING", 0, 0);
+        lcd.printString(" ============ ", 0, 1);
+        lcd.printString(" Wait For CLK", 0, 4);
+        lcd.refresh();
     }
     
     sleep();
@@ -421,4 +422,61 @@ void settings_state(){
 
     stateLED.write(6);
 
+    lcd.clear();
+    lcd.printString(" SEQ SETTINGS", 0, 0);
+    lcd.printString(" ============ ", 0, 1);
+
+}
+
+void init_sequence(){
+    sequence[0].pitch   = c1;
+    sequence[1].pitch   = bb3;
+    sequence[2].pitch   = g2;
+    sequence[3].pitch   = f3;
+    sequence[4].pitch   = eb2;
+    sequence[5].pitch   = c1;
+    sequence[6].pitch   = c1;
+    sequence[7].pitch   = c1;
+    sequence[8].pitch   = eb3;
+    sequence[9].pitch   = eb1;
+    sequence[10].pitch  = f3;
+    sequence[11].pitch  = g3;
+    sequence[12].pitch  = bb1;
+    sequence[13].pitch  = g1;
+    sequence[14].pitch  = c1;
+    sequence[15].pitch  = g2;
+
+    sequence[0].rest    = 0;
+    sequence[1].rest    = 1;
+    sequence[2].rest    = 0;
+    sequence[3].rest    = 0;
+    sequence[4].rest    = 0;
+    sequence[5].rest    = 0;
+    sequence[6].rest    = 1;
+    sequence[7].rest    = 0;
+    sequence[8].rest    = 0;
+    sequence[9].rest    = 0;
+    sequence[10].rest   = 0;
+    sequence[11].rest   = 1;
+    sequence[12].rest   = 0;
+    sequence[13].rest   = 0;
+    sequence[14].rest   = 0;
+    sequence[15].rest   = 0;
+
+    sequence[0].accent  = 1;
+    sequence[1].accent  = 0;
+    sequence[2].accent  = 0;
+    sequence[3].accent  = 1;
+    sequence[4].accent  = 0;
+    sequence[5].accent  = 0;
+    sequence[6].accent  = 1;
+    sequence[7].accent  = 0;
+    sequence[8].accent  = 0;
+    sequence[9].accent  = 1;
+    sequence[10].accent = 0;
+    sequence[11].accent = 0;
+    sequence[12].accent = 1;
+    sequence[13].accent = 0;
+    sequence[14].accent = 0;
+    sequence[15].accent = 1;
 }
