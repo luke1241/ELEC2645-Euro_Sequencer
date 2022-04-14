@@ -189,17 +189,15 @@ int gateLength = 20;
 int accentMode = 1;
 static int currStep = 0;
 
-int contrast = 50;
-int brightness = 50;
-int screenInvert = 0;
+int calibrate = 0;
+int reset = 0;
 
 //Controller objects
 Controller sequenceLength_controller(sequenceLength, 8, 1, MAX_SEQUENCE_LENGTH, 1, "");
 Controller gateLength_controller(gateLength, 20, 10, 200, 10, "ms");
 Controller accentMode_controller(accentMode, 0, 0, 1, 1, "");
-Controller brightness_controller(brightness, 50, 0, 100, 1, "%");
-Controller contrast_controller(contrast, 50, 0, 100, 1, "%");
-Controller invert_controller(screenInvert, 0, 0, 1, 1, "");
+Controller calibrate_controller(calibrate, 0, 0, 0, 0, "");
+Controller reset_controller(reset, 0, 0, 0, 0, "");
 
 
 //Edit menu variables
@@ -208,15 +206,14 @@ int selectedItem = 0;
 //Settings Menu Variables
 int currentMenuItem = 0;
 bool menuState = 0;
-//std::string menuItemStrings[6] = {" No. Steps", " Gate Length", " Accent Mode", " Brightness", " Contrast", " Calibration"};
 
-std::pair<Controller, std::string> menuItems[6] = {
+
+std::pair<Controller, std::string> settings[5] = {
     make_pair(sequenceLength_controller, " No. Steps"),
     make_pair(gateLength_controller, " Gate Length"),
     make_pair(accentMode_controller, " Accent Mode"),
-    make_pair(brightness_controller, " Brightness"),
-    make_pair(contrast_controller, " Contrast"),
-    make_pair(invert_controller, " Invert")
+    make_pair(calibrate_controller, " Calibrate"),
+    make_pair(reset_controller, " Reset")
 };
 
 /*
@@ -267,8 +264,9 @@ void clock_isr();
 
 //Function declarations
 void init_sequence();
-//void changeSetting(std::string name, std::string unit, int &var, int minVal, int maxVal);
-void updateB_C();
+
+void reset_sequencer();
+void calibrate_sequencer();
 
 void idle_state();
 void run_state();
@@ -539,7 +537,12 @@ void run_state(){
         lcd.clear();
         lcd.printString("RUN", 0, 0);
         lcd.drawLine(0, 10, 84, 10, FILL_BLACK);
-        lcd.printString(" Wait For CLK", 0, 4);
+        lcd.printString(" Wait", 0, 2);
+        lcd.printString(" for", 0, 3);
+        lcd.printString(" CLK", 0, 4);
+
+        lcd.drawSprite(42, 11, 37, 42, (int*)Play);
+
         lcd.refresh();
     }
     
@@ -716,36 +719,48 @@ void settings_state(){
     const char * menuChar;
 
     if (menuState) {
-        switch(joystickDir) {
-            case N: {
-                menuItems[currentMenuItem].first.increment();
-                break;
-            }
-            case S: {
-                menuItems[currentMenuItem].first.decrement();
-                break;
-            }
-            case E: {
-                menuState = 1;
-                break;
-            }
-            case W: {
-                menuState = 0;
-                break;
-            }
-            default: {break;}
+        if(settings[currentMenuItem].second == " Calibrate") {
+            calibrate_sequencer();
+            menuState = 0;
         }
+        else if (settings[currentMenuItem].second == " Reset") {
+            reset_sequencer();
+            lcd.printString(" Sequencer", 0, 2);
+            lcd.printString("   Reset", 0, 3);
+            menuState = 0;
+            ThisThread::sleep_for(500ms);
+        }
+        else {
+            switch(joystickDir) {
+                case N: {
+                    settings[currentMenuItem].first.increment();
+                    break;
+                }
+                case S: {
+                    settings[currentMenuItem].first.decrement();
+                    break;
+                }
+                case E: {
+                    menuState = 1;
+                    break;
+                }
+                case W: {
+                    menuState = 0;
+                    break;
+                }
+                default: {break;}
+            }
 
-        menuChar = menuItems[currentMenuItem].second.c_str();
-        lcd.printString(menuChar, 0, 2);
-        menuChar = menuItems[currentMenuItem].first.get_unit().c_str();
-        sprintf(lcdBuffer, " Value: %i%s", menuItems[currentMenuItem].first.get_var(), menuChar);
-        lcd.printString(lcdBuffer, 0, 3);
+            menuChar = settings[currentMenuItem].second.c_str();
+            lcd.printString(menuChar, 0, 2);
+            menuChar = settings[currentMenuItem].first.get_unit().c_str();
+            sprintf(lcdBuffer, " Value: %i%s", settings[currentMenuItem].first.get_var(), menuChar);
+            lcd.printString(lcdBuffer, 0, 3);
 
-        int barSize = menuItems[currentMenuItem].first.get_percent() * 84;
+            int barSize = settings[currentMenuItem].first.get_percent() * 84;
 
-        lcd.drawRect(0, 40, barSize, 45, FILL_BLACK);
-
+            lcd.drawRect(0, 40, barSize, 45, FILL_BLACK);
+        }
     }
     else {
         switch (joystickDir) {
@@ -756,7 +771,7 @@ void settings_state(){
                 break;
             }
             case S: {
-                if(currentMenuItem < (sizeof(menuItems)/sizeof(*menuItems)-1)) {                 //https://stackoverflow.com/questions/4108313/how-do-i-find-the-length-of-an-array
+                if(currentMenuItem < (sizeof(settings)/sizeof(*settings)-1)) {                 //https://stackoverflow.com/questions/4108313/how-do-i-find-the-length-of-an-array
                     currentMenuItem++;
                 }
                 break;
@@ -773,23 +788,23 @@ void settings_state(){
         }
 
         if(currentMenuItem == 0) {
-            menuChar = menuItems[currentMenuItem].second.c_str();
+            menuChar = settings[currentMenuItem].second.c_str();
             lcd.printString(menuChar, 0, 3);
-            menuChar = menuItems[currentMenuItem + 1].second.c_str();
+            menuChar = settings[currentMenuItem + 1].second.c_str();
             lcd.printString(menuChar, 0, 4);
         }
-        else if (currentMenuItem == (sizeof(menuItems)/sizeof(*menuItems)-1)) {
-            menuChar = menuItems[currentMenuItem].second.c_str();
+        else if (currentMenuItem == (sizeof(settings)/sizeof(*settings)-1)) {
+            menuChar = settings[currentMenuItem].second.c_str();
             lcd.printString(menuChar, 0, 3);
-            menuChar = menuItems[currentMenuItem - 1].second.c_str();
+            menuChar = settings[currentMenuItem - 1].second.c_str();
             lcd.printString(menuChar, 0, 2);
         }
         else {
-            menuChar = menuItems[currentMenuItem - 1].second.c_str();
+            menuChar = settings[currentMenuItem - 1].second.c_str();
             lcd.printString(menuChar, 0, 2);
-            menuChar = menuItems[currentMenuItem].second.c_str();
+            menuChar = settings[currentMenuItem].second.c_str();
             lcd.printString(menuChar, 0, 3);
-            menuChar = menuItems[currentMenuItem + 1].second.c_str();
+            menuChar = settings[currentMenuItem + 1].second.c_str();
             lcd.printString(menuChar, 0, 4);
         }
 
@@ -800,19 +815,8 @@ void settings_state(){
             }
         }
     }
-        
-    
-
-
-    //changeSetting("No. Steps", "", sequenceLength, 1, MAX_SEQUENCE_LENGTH);
-
-
-
-    //lcd.setContrast(contrast / 100.0);
 
     lcd.refresh();
-
-    updateB_C();
 
     ThisThread::sleep_for(150ms);
 }
@@ -886,38 +890,14 @@ void init_sequence(){
     sequence[14].hold   = 0;
     sequence[15].hold   = 0;
 }
-/*
-void changeSetting(std::string name, std::string unit, int &var, int minVal, int maxVal) {
-    joystickDir = joystick.get_direction();
 
-    switch (joystickDir) {
-        case E: {
-            if (var < maxVal) {
-                var++;
-            }
-            break;
-        }
-        case W: {
-            if(var > minVal) {
-                var --;
-            }
-            break;
-        }
-        default: break;
+void reset_sequencer() {
+    init_sequence();
+    for(std::pair<Controller, std::string> setting : settings) {
+        setting.first.reset();
     }
-
-    std::string nameString = name + ":";
-    const char *nChar = nameString.c_str();
-    lcd.printString(nChar, 0, 2);
-
-    sprintf(lcdBuffer, "  %i%s", var, unit.c_str());
-    lcd.printString(lcdBuffer, 0, 3);
-
 }
-*/
 
-void updateB_C() {
-    lcd.setBrightness(brightness / 100.0);
-    lcd.setContrast(contrast / 100.0);
-    lcd.refresh();
+void calibrate_sequencer() {
+
 }
