@@ -34,10 +34,10 @@
 #define JOYSTICK_Y PB_0
 #define JOYSTICK_BTN PA_8
 
-
-//Global constant definitions
 #define MAX_SEQUENCE_LENGTH 64
 #define DAC_SEMITONE 0.0252525252525
+#define CALIBRATION_INC 0.01
+#define MENU_WAIT_TIME 200ms
 
 //Enum for states
 enum class State {                                      //https://www.aleksandrhovhannisyan.com/blog/finite-state-machine-fsm-tutorial-implementing-an-fsm-in-c/
@@ -91,49 +91,6 @@ enum Pitch {
 
 std::string no_yes[2] = {"N", "Y"};
 
-
-
-//Map of pitches and corresponding AnalogOut vals
-
-std::map<std::string, int> pitch {
-    {"C1", 0},
-    {"C#1", 1},
-    {"D1", 2},
-    {"D#1", 3},
-    {"E1", 4},
-    {"F1", 5},
-    {"F#1", 6},
-    {"G1", 7},
-    {"G#1", 8},
-    {"A1", 9},
-    {"A#1", 10},
-    {"B1", 11},
-    {"C2", 12},
-    {"C#2", 13},
-    {"D2", 14},
-    {"D#2", 15},
-    {"E2", 16},
-    {"F2", 17},
-    {"F#2", 18},
-    {"G2", 19},
-    {"G#2", 20},
-    {"A2", 21},
-    {"A#2", 22},
-    {"B2", 23},
-    {"C3", 24},
-    {"C#3", 25},
-    {"D3", 26},
-    {"D#3", 27},
-    {"E3", 28},
-    {"F3", 29},
-    {"F#3", 30},
-    {"G3", 31},
-    {"G#3", 32},
-    {"A3", 33},
-    {"A#3", 34},
-    {"B3", 35}
-};
-
 std::string pitchStrings[36] {
     "C1",
     "C#1",
@@ -173,6 +130,9 @@ std::string pitchStrings[36] {
     "B3"
 };
 
+float pitchFloats[36];
+
+
 //Step struct hold data for each step
 struct Step {
     Pitch pitch = Pitch::c1;
@@ -199,14 +159,12 @@ Controller accentMode_controller(accentMode, 0, 0, 1, 1, "");
 Controller calibrate_controller(calibrate, 0, 0, 0, 0, "");
 Controller reset_controller(reset, 0, 0, 0, 0, "");
 
-
 //Edit menu variables
 int selectedItem = 0;
 
 //Settings Menu Variables
 int currentMenuItem = 0;
 bool menuState = 0;
-
 
 std::pair<Controller, std::string> settings[5] = {
     make_pair(sequenceLength_controller, " No. Steps"),
@@ -215,17 +173,6 @@ std::pair<Controller, std::string> settings[5] = {
     make_pair(calibrate_controller, " Calibrate"),
     make_pair(reset_controller, " Reset")
 };
-
-/*
-typedef std::pair<std::string, int&> str_ref_pair;
-
-std::vector<std::pair<std::string, int>> menuItems = {make_pair(" No. Steps", sequenceLength)};
-*/
-
-
-
-
-//uint8_t keyboardVal = 0b01010101;     uint8_t for 8 bit int
 
 //Input/Output/Interrupt object declarations
 DebounceIn clockIn(CLOCK_PIN, PullDown);
@@ -362,9 +309,11 @@ const int Play[37][42] {
     
 };
 
-int main()
-{
+int main() {
     
+    for (int i = 0; i < 35; i++) {
+        pitchFloats[i] = DAC_SEMITONE * i;
+    }
 
     stopBtn.rise(&stop_isr);
     stopBtn.mode(PullNone);
@@ -640,7 +589,8 @@ void edit_state(){
     std::string pitchLine = " Pitch: " + pitchStrings[sequence[currStep].pitch];
     const char *pString = pitchLine.c_str();
     lcd.printString(pString, 0, 2);
-    sprintf(lcdBuffer, " R:%s  A:%s  H:%s", no_yes[sequence[currStep].rest].c_str(), no_yes[sequence[currStep].accent].c_str(), no_yes[sequence[currStep].hold].c_str());
+    sprintf(lcdBuffer, " R:%s  A:%s  H:%s", no_yes[sequence[currStep].rest].c_str(), 
+                no_yes[sequence[currStep].accent].c_str(), no_yes[sequence[currStep].hold].c_str());
     lcd.printString(lcdBuffer, 0, 4);
     
     lcd.drawLine(0, 10, 84, 10, FILL_BLACK);
@@ -700,7 +650,7 @@ void edit_state(){
     
     lcd.refresh();
     
-    ThisThread::sleep_for(150ms);
+    ThisThread::sleep_for(MENU_WAIT_TIME);
 }
 
 void settings_state(){
@@ -818,7 +768,7 @@ void settings_state(){
 
     lcd.refresh();
 
-    ThisThread::sleep_for(150ms);
+    ThisThread::sleep_for(MENU_WAIT_TIME);
 }
 
 void init_sequence(){
@@ -899,5 +849,64 @@ void reset_sequencer() {
 }
 
 void calibrate_sequencer() {
+    int calibrationStage = 0;
+    int calibrationComplete = 0;
 
+    float calibrationOffVoltage = 0.0;
+    float calibrationOff = 0.0;
+    float calibrationVals[3] = {1.0, 2.0, 3.0};
+
+    while(!calibrationComplete) {
+
+        joystickDir = joystick.get_direction();
+
+        lcd.clear();
+        lcd.printString("CALIBRATION", 0, 0);
+        lcd.drawLine(0, 11, 84, 11, FILL_BLACK);
+        
+        switch (calibrationStage) {
+            case 0: {
+                cvOut.write(0);
+
+                switch (joystickDir) {
+                    case N: {
+                        calibrationOffVoltage += CALIBRATION_INC;
+                        break;
+                    }
+                    case S: {
+                        calibrationOffVoltage -= CALIBRATION_INC;
+                        break;
+                    }
+                    default: {break;}
+                }
+
+                sprintf(lcdBuffer, "Off: %i", int(calibrationOffVoltage * 100));
+                lcd.printString(lcdBuffer, 0, 2);
+
+                if(!joystick_btn.read()) {calibrationStage = 1;}
+
+                break;
+            }
+            case 1: {
+                calibrationOff = calibrationOffVoltage / 3.3;
+                break;
+            }
+            case 2: {
+
+                break;
+            }
+            case 3: {
+
+                break;
+            }
+            case 4: {
+
+                break;
+            }
+        }
+
+        lcd.refresh();
+        ThisThread::sleep_for(150ms);
+    }
+    
 }
