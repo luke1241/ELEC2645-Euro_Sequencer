@@ -166,15 +166,13 @@ bool menuState = 0;
 Controller sequenceLength_controller(sequenceLength, 8, 1, MAX_SEQUENCE_LENGTH, 1, "");
 Controller gateLength_controller(gateLength, 20, 10, 200, 10, "ms");
 Controller accentMode_controller(accentMode, 0, 0, 1, 1, "");
-Controller calibrate_controller(calibrate, 0, 0, 0, 0, "");
 Controller reset_controller(reset, 0, 0, 0, 0, "");
 
 //Array of pairs containing setting controller object and corresponding 'name' to be displayed
-std::pair<Controller, std::string> settings[5] = {
+std::pair<Controller, std::string> settings[4] = {
     make_pair(sequenceLength_controller, " No. Steps"),
     make_pair(gateLength_controller, " Gate Length"),
     make_pair(accentMode_controller, " Accent Mode"),
-    make_pair(calibrate_controller, " Calibrate"),
     make_pair(reset_controller, " Reset")
 };
 
@@ -217,7 +215,6 @@ void clock_isr();
 void init_sequence();
 
 void reset_sequencer();
-void calibrate_sequencer();
 
 void idle_state();
 void run_state();
@@ -642,12 +639,8 @@ void settings_state(){                                              //Settings s
 
     const char * menuChar;                                          //char pointer for storing converted strings
 
-    if (menuState) {                                                //If menuState = 1, i.e a setting is selected
-        if(settings[currentMenuItem].second == " Calibrate") {          //If statement for settings with unique functions
-            calibrate_sequencer();
-            menuState = 0;
-        }
-        else if (settings[currentMenuItem].second == " Reset") {
+    if (menuState) {
+        if (settings[currentMenuItem].second == " Reset") {
             reset_sequencer();
             lcd.printString(" Sequencer", 0, 2);
             lcd.printString("   Reset", 0, 3);
@@ -822,65 +815,3 @@ void reset_sequencer() {                                            //Function h
     }
 }
 
-void calibrate_sequencer() {
-    int calibrationStage = 0;
-    int calibrationComplete = 0;
-
-    float calibrationOffVoltage = 0.0;
-    float calibrationOff = 0.0;
-    float calibrationVals[3] = {1.0, 2.0, 3.0};
-
-    while(!calibrationComplete) {
-
-        joystickDir = joystick.get_direction();
-
-        lcd.clear();
-        lcd.printString("CALIBRATION", 0, 0);
-        lcd.drawLine(0, 11, 84, 11, FILL_BLACK);
-        
-        switch (calibrationStage) {
-            case 0: {
-                cvOut.write(0);
-
-                switch (joystickDir) {
-                    case N: {
-                        calibrationOffVoltage += CALIBRATION_INC;
-                        break;
-                    }
-                    case S: {
-                        calibrationOffVoltage -= CALIBRATION_INC;
-                        break;
-                    }
-                    default: {break;}
-                }
-
-                sprintf(lcdBuffer, "Off: %i", int(calibrationOffVoltage * 100));
-                lcd.printString(lcdBuffer, 0, 2);
-
-                if(!joystick_btn.read()) {calibrationStage = 1;}
-
-                break;
-            }
-            case 1: {
-                calibrationOff = calibrationOffVoltage / 3.3;
-                break;
-            }
-            case 2: {
-
-                break;
-            }
-            case 3: {
-
-                break;
-            }
-            case 4: {
-
-                break;
-            }
-        }
-
-        lcd.refresh();
-        ThisThread::sleep_for(150ms);
-    }
-    
-}
